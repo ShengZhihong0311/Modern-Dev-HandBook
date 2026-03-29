@@ -20,7 +20,7 @@
 - [第四章：时空——Git 版本控制与协作](docs/chapter-04-git.md)
 - [第五章：封装——Docker 容器化与部署](docs/chapter-05-docker.md)
 - [第六章：认知——AI 原生开发（Vibe Coding）](docs/chapter-06-ai-native.md)
-- 第七章：工程规范与职业操守
+- [第七章：工程规范与职业操守](docs/chapter-07-engineering.md)
 
 ## 写作风格
 
