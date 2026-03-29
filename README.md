@@ -29,6 +29,12 @@
 - [第七章：工程规范与职业操守](docs/chapter-07-engineering.md)
 - [第八章：实战——不同开发环境的差异与注意事项](docs/chapter-08-environments.md)
   - 本地、云服务器、实验室服务器的对比与注意事项
+- [第九章：交付——部署与上线](docs/chapter-09-deployment.md)
+  - [前端部署](docs/chapter-09-deployment.md#91-前端部署让网页可访问) — GitHub Pages、Vercel/Netlify、Nginx
+  - [后端部署](docs/chapter-09-deployment.md#92-后端部署让-api-可访问) — 云服务器、进程管理、反向代理
+  - [Windows 服务器部署](docs/chapter-09-deployment.md#95-windows-服务器部署) — 远程桌面、服务管理
+  - [远程开发与控制](docs/chapter-09-deployment.md#96-远程开发与控制) — SSH、VS Code Remote
+  - [微服务架构简介](docs/chapter-09-deployment.md#97-微服务架构简介) — 单体 vs 微服务
 
 ## 写作风格
 
