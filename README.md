@@ -18,7 +18,7 @@
 - [第二章：触角——终端（CLI）与数据流转](docs/chapter-02-terminal.md)
 - [第三章：侦探——程序诊断与异常处理](docs/chapter-03-debugging.md)
 - [第四章：时空——Git 版本控制与协作](docs/chapter-04-git.md)
-- 第五章：封装——Docker 容器化与部署
+- [第五章：封装——Docker 容器化与部署](docs/chapter-05-docker.md)
 - 第六章：认知——AI 原生开发（Vibe Coding）
 - 第七章：工程规范与职业操守
 
