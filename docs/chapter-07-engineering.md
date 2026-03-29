@@ -609,7 +609,178 @@ def check_expiry():
 
 ---
 
-## 7.10 关键认知
+## 7.10 项目维护规范：持续清理
+
+项目不是一次性交付，而是持续维护。定期清理冗余代码、更新过期文档、删除废弃分支，保持项目健康。维护成本与代码质量正相关，忽视维护的项目最终会变成"遗留系统"。
+
+### PR 合并后的清理清单
+
+PR 合并不是终点，而是维护的起点。合并后必须完成清理，否则项目会逐渐堆积垃圾。
+
+**必须清理的内容**：
+
+| 清理项 | 操作 | 原因 |
+|----------|--------|------|
+| 功能分支 | `git branch -d feature/xxx` | 避免分支堆积 |
+| 远程分支 | `git push origin --delete feature/xxx` | 同步远程 |
+| 临时文件 | 删除调试文件、临时脚本 | 避免污染仓库 |
+| Worktree | `git worktree remove xxx` | 清理工作树 |
+| Stash | `git stash drop` | 清理暂存的临时修改 |
+
+**可能需要清理的内容**：
+
+| 清理项 | 判断条件 | 操作 |
+|----------|------------|--------|
+| 废弃代码 | 功能已移除，代码仍存在 | 删除 + 更新文档 |
+| 过期注释 | TODO 已完成、FIXME 已修复 | 删除或更新 |
+| 冗余文档 | 文档内容已过时 | 更新或删除 |
+| 未用依赖 | 包已不用但仍在 pyproject.toml | `uv remove xxx` |
+| 测试数据 | 测试用例已删除，数据仍存在 | 删除 fixtures |
+
+**实战清理流程**：
+
+```bash
+# === PR 合并后清理（标准流程）===
+# 1. 切回主分支并拉取最新
+git checkout main
+git pull origin main
+
+# 2. 删除本地功能分支
+git branch -d feature/user-auth
+
+# 3. 删除远程功能分支
+git push origin --delete feature/user-auth
+
+# 4. 清理本地残留（可选）
+git worktree list                          # 检查 worktree
+git worktree remove feature-user-auth      # 如有则清理
+git stash list                             # 检查 stash
+git stash drop                             # 清理无用 stash
+
+# 5. 清理追踪的已删除远程分支
+git fetch --prune                          # 自动清理
+git remote prune origin                    # 手动清理
+
+# 6. 检查是否需要更新文档
+# 如果功能有变更，更新 README、API 文档等
+```
+
+### 定期维护周期
+
+项目需要定期维护，就像房子需要定期打扫。维护周期取决于项目活跃度：活跃项目每周维护，稳定项目每月维护。
+
+**维护周期建议**：
+
+| 维护项 | 频率 | 操作 |
+|----------|--------|------|
+| 分支清理 | 每周 | 删除已合并的分支 |
+| 依赖更新 | 每月 | 检查安全漏洞，更新过时依赖 |
+| 文档审查 | 每月 | 检查文档是否过时 |
+| 代码审查 | 每季度 | 清理未使用代码、过期注释 |
+| 测试清理 | 每季度 | 清理无用测试、更新 fixtures |
+| 安全审计 | 每季度 | 检查依赖漏洞、权限配置 |
+
+**分支清理检查**：
+
+```bash
+# === 查看可清理的分支 ===
+# 本地分支
+git branch --merged main                   # 已合并到 main 的分支
+
+# 远程分支
+git branch -r --merged origin/main         # 远程已合并分支
+
+# 未合并但可能废弃的分支（超过 30 天无更新）
+git for-each-ref --sort=committer-date --format='%(refname:short) %(committerdate:short)' refs/heads/ | head -20
+
+# === 批量清理已合并分支 ===
+# 清理本地（排除 main/dev）
+git branch --merged main | grep -v "^\*\|main\|dev" | xargs git branch -d
+
+# 清理远程
+git branch -r --merged origin/main | grep -v "main\|dev" | sed 's/origin\//' | xargs -I {} git push origin --delete {}
+```
+
+### 冗余代码清理
+
+代码会随时间累积：功能废弃但代码保留、重构后旧代码未删、注释过时但未清理。定期清理让代码保持整洁。
+
+**识别冗余代码的方法**：
+
+| 方法 | 工具 | 适用场景 |
+|------|------|----------|
+| IDE 分析 | VS Code "Find Unused" | 单文件分析 |
+| 静态分析 | `vulture`（Python） | 项目级扫描 |
+| 测试覆盖 | `coverage.py` | 找无测试代码 |
+| 依赖检查 | `pip-check-reqs` | 找未用依赖 |
+| 代码搜索 | `grep "TODO\|FIXME\|DEPRECATED"` | 找过期标记 |
+
+**实战清理示例**：
+
+```bash
+# === Python 未用代码检测 ===
+# 安装工具
+uv tool install vulture
+
+# 扫描未用代码
+vulture src/ --min-confidence 80
+
+# === 未用依赖检测 ===
+uv tool install pip-check-reqs
+
+# 检查未用依赖
+pip-check-reqs src/
+
+# === 查找过期标记 ===
+grep -rn "TODO\|FIXME\|DEPRECATED\|XXX" src/
+
+# === 查找已完成的 TODO ===
+# 先查看 git log，确认标记的功能已完成
+git log --grep="完成" --grep="实现" --oneline
+
+# 然后清理相关 TODO 注释
+```
+
+### 文档更新规范
+
+文档必须与代码同步更新。代码变更但文档未更新，会导致误导、增加理解成本。
+
+**文档更新触发条件**：
+
+| 触发条件 | 需更新文档 | 优先级 |
+|----------|------------|--------|
+| 新增功能 | README、API 文档 | 必须 |
+| 修改接口 | API 文档、使用示例 | 必须 |
+| 修改配置 | 配置说明、.env.example | 必须 |
+| 修改目录结构 | README、架构文档 | 必须 |
+| 废弃功能 | README、迁移指南 | 必须 |
+| 修复 Bug | CHANGELOG | 推荐 |
+| 重构代码 | 内部文档（如有） | 可选 |
+
+**CHANGELOG 更新时机**：
+
+```markdown
+# CHANGELOG 更新规则
+
+## 何时更新
+- 功能新增/修改/删除：立即更新
+- Bug 修复：在发布时批量更新
+- 内部重构：发布时简要说明
+
+## 何时不更新
+- 文档 typo 修复
+- 测试调整
+- 配置文件格式调整（无功能影响）
+
+## 更新内容
+- What：做了什么改动
+- Why：为什么改动（可选，重大改动必写）
+- Impact：影响范围（如有破坏性变更）
+```
+
+---
+
+## 7.11 关键认知
 
 三个核心原则：
 

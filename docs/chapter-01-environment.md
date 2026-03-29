@@ -137,13 +137,156 @@ uv pip list                # 查看已安装包
 
 ---
 
-## 1.5 关键认知
+## 1.5 环境变量与忽略文件：配置隔离
 
-三个核心原则：
+代码中不应该硬编码敏感信息（密码、API Key、数据库连接）。环境变量文件 `.env` 实现配置与代码分离，`.gitignore` 防止敏感文件进入版本控制。两者配合，保护项目安全。
+
+### .env 文件规范
+
+`.env` 存放环境特定配置：数据库连接、API 密钥、第三方服务凭证。核心原则：**绝不提交到 Git**，只提供 `.env.example` 模板。
+
+**.env 内容分类**：
+
+| 类别 | 示例 | 安全等级 |
+|------|------|----------|
+| 数据库配置 | `DATABASE_URL=postgres://...` | 高危（含密码） |
+| API 密钥 | `OPENAI_API_KEY=sk-...` | 高危 |
+| 第三方凭证 | `AWS_ACCESS_KEY_ID=...` | 高危 |
+| 服务端口 | `PORT=8081` | 低危 |
+| 调试开关 | `DEBUG=true` | 低危 |
+| 功能开关 | `ENABLE_CACHE=true` | 低危 |
+
+**命名规范**：
+
+```bash
+# === 好的命名 ===
+DATABASE_URL                 # 服务名 + 功能
+OPENAI_API_KEY              # 服务名 + 类型
+REDIS_HOST                  # 服务名 + 属性
+LOG_LEVEL                   # 功能名 + 属性
+
+# === 坏的命名 ===
+DB                          # 过短，含义不清
+key                         # 不明确是哪个服务
+password                    # 不明确属于谁
+VAR1                        # 无意义
+```
+
+**.env.example 模板规范**：
+
+```bash
+# .env.example（提交到 Git，不含真实值）
+
+# === 数据库配置 ===
+DATABASE_URL=postgres://user:password@localhost:5432/dbname
+DATABASE_POOL_SIZE=5
+
+# === API 配置 ===
+OPENAI_API_KEY=your-api-key-here
+MODEL_PROVIDER=deepseek
+
+# === 服务配置 ===
+PORT=8081
+DEBUG=false
+LOG_LEVEL=INFO
+
+# === 功能开关 ===
+ENABLE_CACHE=true
+CACHE_EXPIRE_SECONDS=3600
+```
+
+### .gitignore 文件规范
+
+`.gitignore` 声明哪些文件不应进入版本控制。核心目标：防止敏感信息泄露、减少仓库体积、避免 IDE/系统差异文件干扰。
+
+**必须忽略的内容**：
+
+| 类别 | 必须忽略 | 原因 |
+|------|----------|------|
+| 环境变量 | `.env`, `.env.local`, `.env.*.local` | **高危**：含敏感信息 |
+| 依赖目录 | `.venv/`, `node_modules/`, `__pycache__/` | 体积大，可重建 |
+| IDE 配置 | `.idea/`, `.vscode/`, `*.swp` | 个人偏好，不共享 |
+| 系统文件 | `.DS_Store`, `Thumbs.db` | 无意义 |
+| 构建产物 | `dist/`, `build/`, `*.pyc` | 可重建 |
+| 日志文件 | `*.log`, `logs/` | 运行时生成 |
+| 临时文件 | `*.tmp`, `*.temp`, `.cache/` | 临时数据 |
+
+**Python 项目 .gitignore 模板**：
+
+```gitignore
+# === 环境变量（最高优先级）===
+.env
+.env.local
+.env.*.local
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# === 测试与覆盖 ===
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === 系统 ===
+.DS_Store
+Thumbs.db
+
+# === 构建产物 ===
+dist/
+build/
+*.egg-info/
+
+# === 日志与临时 ===
+*.log
+logs/
+.cache/
+*.tmp
+
+# === 本地开发脚本 ===
+scripts/local/
+```
+
+### 实战命令
+
+```bash
+# === 验证 .gitignore ===
+git check-ignore -v .env          # 检查是否被忽略
+git check-ignore -v .venv/
+
+# === 查看 .env 加载情况 ===
+# Python (python-dotenv)
+uv run python -c "from dotenv import load_dotenv; load_dotenv(); import os; print(os.getenv('DATABASE_URL'))"
+
+# === 安全检查（确保 .env 未提交）===
+git log --all --full-history -- ".env"  # 检查历史中是否有 .env
+# 如果有，需要从历史中移除（高危操作，慎重）
+```
+
+---
+
+## 1.6 关键认知
+
+四个核心原则：
 
 1. **环境隔离是底线**：永远不要用系统 Python 装项目依赖
 2. **锁文件是保险**：`uv.lock` 提交到 Git，确保团队一致性
 3. **uv run 是习惯**：所有 Python 命令前加 `uv run`
+4. **.env 绝不提交**：敏感信息用环境变量，模板用 `.env.example`
 
 ### 常见陷阱
 
@@ -153,6 +296,9 @@ uv pip list                # 查看已安装包
 | 用系统 Python | 版本冲突 | 始终用 `uv run` |
 | 忽略锁文件 | "在我机器上能跑" | 将 `uv.lock` 提交 Git |
 | 手动编辑锁文件 | 依赖解析失败 | 锁文件由工具管理 |
+| 提交 .env 文件 | **安全事故** | `.gitignore` 忽略，只提交 `.env.example` |
+| 硬编码敏感信息 | 密码泄露到 Git | 用环境变量替代 |
+| .gitignore 缺失 | 仓库体积膨胀、IDE 配置冲突 | 使用标准模板 |
 
 ---
 
