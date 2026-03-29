@@ -372,7 +372,274 @@ docker images | grep myapp             # 对比大小
 
 ---
 
-## 5.8 完整部署案例
+## 5.8 本地启动 vs Docker 启动对比
+
+同一个项目可以用两种方式启动：直接在本地运行，或者通过 Docker 容器运行。两种方式各有适用场景。
+
+### 启动方式对比
+
+| 维度 | 本地启动（uv run） | Docker 启动 |
+|------|-------------------|-------------|
+| 启动速度 | 快（秒级） | 慢（首次构建分钟级，后续秒级） |
+| 环境一致性 | 依赖本地配置 | 完全一致（容器化） |
+| 依赖安装 | 需本地有 Python + uv | 镜像内置，无需本地环境 |
+| 多服务协作 | 需手动启动每个服务 | docker-compose 一键启动 |
+| 调试体验 | 直接断点调试 | 需配置远程调试 |
+| 热重载 | 文件保存即生效 | 需配置挂载 |
+| 团队协作 | 可能因环境差异出问题 | 环境一致，无差异问题 |
+
+### 本地启动示例
+
+```bash
+# === 本地启动项目 ===
+
+# 1. 安装依赖
+uv sync
+
+# 2. 启动服务
+uv run python run_server.py
+
+# 3. 启动数据库（如果需要）
+# 方式一：本地安装 PostgreSQL
+# 方式二：只启动数据库容器
+docker run -d --name postgres \
+  -e POSTGRES_PASSWORD=secret \
+  -p 5432:5432 \
+  postgres:16-alpine
+
+# 4. 测试
+curl http://localhost:8081/health
+```
+
+**本地启动优缺点**：
+
+| 优点 | 缺点 |
+|------|------|
+| 启动快，调试方便 | 依赖本地环境配置 |
+| 无需 Docker 知识 | 团队成员环境可能不一致 |
+| IDE 集成完美 | 多服务时需要手动管理 |
+
+### Docker 启动示例
+
+```bash
+# === Docker 启动项目 ===
+
+# 1. 构建并启动（首次或依赖变更时）
+docker-compose up -d --build
+
+# 2. 查看状态
+docker-compose ps
+
+# 3. 查看日志
+docker-compose logs -f api
+
+# 4. 进入容器调试
+docker-compose exec api bash
+
+# 5. 测试
+curl http://localhost:8081/health
+
+# 6. 停止
+docker-compose down
+```
+
+**Docker 启动优缺点**：
+
+| 优点 | 缺点 |
+|------|------|
+| 环境完全一致 | 首次构建较慢 |
+| 一键启动多服务 | 需要学习 Docker |
+| 团队协作无环境问题 | 调试配置稍复杂 |
+
+### 选择决策
+
+| 场景 | 推荐方式 | 原因 |
+|------|----------|------|
+| 快速开发调试 | 本地启动 | 启动快，调试方便 |
+| 团队协作开发 | Docker 启动 | 环境一致，减少"在我机器上能跑"问题 |
+| 多服务项目 | Docker 启动 | docker-compose 统一管理 |
+| 持续集成/部署 | Docker 启动 | 与生产环境一致 |
+| 学习新项目 | Docker 启动 | 无需配置本地环境，开箱即用 |
+
+### 混合模式：本地开发 + Docker 数据库
+
+很多团队采用混合模式：应用本地启动，数据库等服务用 Docker。
+
+```bash
+# === 混合模式：本地跑应用，Docker 跑数据库 ===
+
+# 1. 启动数据库容器
+docker run -d --name mydb \
+  -e POSTGRES_USER=app \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=appdb \
+  -p 5432:5432 \
+  postgres:16-alpine
+
+# 2. 本地启动应用（连接 Docker 数据库）
+DATABASE_URL=postgresql://app:secret@localhost:5432/appdb \
+  uv run python run_server.py
+
+# 3. 应用调试方便，数据库环境一致
+```
+
+**混合模式优点**：
+- 应用调试体验好（本地断点、热重载）
+- 数据库等服务环境一致（Docker 提供）
+- 启动速度快（无需构建应用镜像）
+
+---
+
+## 5.9 Docker 热重载开发
+
+开发时希望代码修改后自动生效，无需重启容器。Docker 通过 **Bind Mount（绑定挂载）** 实现热重载。
+
+### 热重载原理
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  主机文件系统                                                        │
+│  ~/projects/myapp/                                                   │
+│  ├── src/                                                            │
+│  │   └── main.py  ← 修改这里                                         │
+│  └── ...                                                             │
+└───────────────────────┬─────────────────────────────────────────────┘
+                        │
+                        │ Bind Mount（实时同步）
+                        ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  容器文件系统                                                        │
+│  /app/                                                               │
+│  ├── src/                                                            │
+│  │   └── main.py  ← 自动同步修改                                     │
+│  └── ...                                                             │
+│                                                                      │
+│  文件监控进程检测到变化 → 自动重启服务                                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 热重载配置
+
+**方式一：docker-compose.yml 配置**
+
+```yaml
+# docker-compose.dev.yml（开发环境配置）
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8000"
+    volumes:
+      - ./src:/app/src              # 挂载源代码（热重载）
+      - ./service:/app/service      # 挂载服务代码
+      - ./pyproject.toml:/app/pyproject.toml:ro  # 只读挂载配置
+      - ./uv.lock:/app/uv.lock:ro
+    environment:
+      - DEBUG=true
+      - WATCHFILES_FORCE_POLLING=true   # 解决 WSL 文件监听问题
+    command: uv run uvicorn service.server:app --reload --host 0.0.0.0
+```
+
+**方式二：开发专用 compose 文件覆盖**
+
+```yaml
+# docker-compose.yml（基础配置）
+services:
+  api:
+    build: .
+    ports:
+      - "8081:8000"
+    # 生产环境不挂载代码
+```
+
+```yaml
+# docker-compose.override.yml（开发覆盖，自动加载）
+services:
+  api:
+    volumes:
+      - ./src:/app/src
+      - ./service:/app/service
+    environment:
+      - DEBUG=true
+    command: uv run uvicorn service.server:app --reload --host 0.0.0.0
+```
+
+```bash
+# 开发环境（自动加载 override）
+docker-compose up -d
+
+# 生产环境（跳过 override）
+docker-compose -f docker-compose.yml up -d
+```
+
+### 热重载注意事项
+
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| WSL 中热重载不生效 | WSL 文件监听机制不同 | 设置 `WATCHFILES_FORCE_POLLING=true` |
+| 修改代码后无反应 | 未正确挂载目录 | 检查 volumes 配置路径 |
+| 热重载太慢 | 文件监听范围太大 | 排除不必要的目录 |
+| 依赖变更不生效 | .venv 未挂载 | 修改依赖后重建容器 |
+
+**WSL 热重载完整配置**：
+
+```yaml
+services:
+  api:
+    volumes:
+      - ./src:/app/src
+    environment:
+      # WSL 文件监听修复
+      - WATCHFILES_FORCE_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+    # 使用 watchfiles 或 uvicorn --reload
+    command: uv run uvicorn service.server:app --reload --host 0.0.0.0 --reload-include="*.py"
+```
+
+### 热重载开发工作流
+
+```bash
+# === 热重载开发工作流 ===
+
+# 1. 启动开发环境
+docker-compose -f docker-compose.dev.yml up -d
+
+# 2. 查看日志（确认热重载生效）
+docker-compose logs -f api
+# 输出应显示: "Watching for file changes..."
+
+# 3. 修改代码
+# 在主机上编辑 src/main.py
+
+# 4. 观察自动重载
+# 日志显示: "Detected file change, reloading..."
+
+# 5. 测试修改
+curl http://localhost:8081/api/test
+
+# 6. 循环开发...
+
+# 7. 完成后停止
+docker-compose down
+```
+
+### 挂载 vs 复制对比
+
+| 方式 | 命令 | 适用场景 |
+|------|------|----------|
+| Bind Mount | `volumes: - ./src:/app/src` | **开发环境**：热重载 |
+| COPY | `COPY src/ /app/src/` | **生产环境**：镜像自包含 |
+
+**生产环境不应使用挂载**：
+- 挂载依赖主机文件系统，不可移植
+- 性能不如镜像内置
+- 安全风险：暴露主机文件
+
+---
+
+## 5.10 完整部署案例
 
 场景：部署一个 FastAPI + PostgreSQL 的 Web 应用。
 
@@ -463,7 +730,7 @@ docker-compose down -v
 
 ---
 
-## 5.9 开发 vs 生产配置
+## 5.11 开发 vs 生产配置
 
 开发环境和生产环境需求不同：开发需要热重载、调试工具；生产需要稳定、安全、资源限制。最佳实践：使用不同的 compose 文件。
 
@@ -507,7 +774,7 @@ services:
 
 ---
 
-## 5.10 关键认知
+## 5.12 关键认知
 
 三个核心原则：
 
@@ -542,4 +809,4 @@ docker network inspect network          # 网络详情
 
 ---
 
-> **下一章**：掌握了容器化部署后，我们将进入 AI 原生开发时代，学习如何与 AI 协作编程。
+> **下一章**：掌握了容器化部署后，我们将进入 AI 原生开发时代，学习如何与 AI 协作编程。之后，我们还会讨论在不同环境（本地、云服务器、实验室服务器）开发的差异与注意事项。
